@@ -1,18 +1,30 @@
 {
-    "name": "creacoon/laravel-dashboard-live-departure-board-tile",
-    "version": "1.0.0",
+    "name": "creacoon/laravel-dashboard-dutch-trains",
     "description": "A Dutch trains tile for Spatie Laravel Dashboard",
     "type": "library",
     "license": "MIT",
     "require": {
         "php": "^8.4",
+        "illuminate/contracts": "^11.0|^12.0|^13.0",
+        "illuminate/console": "^11.0|^12.0|^13.0",
         "illuminate/http": "^11.0|^12.0|^13.0",
+        "illuminate/support": "^11.0|^12.0|^13.0",
         "livewire/livewire": "^4.0",
+        "nesbot/carbon": "^2.72.2|^3.0",
         "spatie/laravel-dashboard": "^4.0"
+    },
+    "require-dev": {
+        "orchestra/testbench": "^9.0|^10.0|^11.0",
+        "phpunit/phpunit": "^11.0|^12.0|^13.0"
     },
     "autoload": {
         "psr-4": {
             "Creacoon\\LiveDepartureBoardTile\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Creacoon\\LiveDepartureBoardTile\\Tests\\": "tests/"
         }
     },
     "extra": {
@@ -21,5 +33,8 @@
                 "Creacoon\\LiveDepartureBoardTile\\LiveDepartureBoardTileServiceProvider"
             ]
         }
+    },
+    "scripts": {
+        "test": "phpunit tests"
     }
 }
