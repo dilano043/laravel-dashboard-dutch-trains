@@ -1,6 +1,6 @@
 {
     "name": "creacoon/laravel-dashboard-dutch-trains",
-    "description": "A Dutch trains tile for Spatie Laravel Dashboard",
+    "description": "Fetch upcoming departures for the live departure board tile",
     "type": "library",
     "license": "MIT",
     "require": {
