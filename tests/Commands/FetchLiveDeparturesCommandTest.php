@@ -115,21 +115,6 @@ class FetchLiveDeparturesCommandTest extends TestCase
         self::assertNull($departures[0]['actual_at']);
     }
 
-    public function test_stores_cancelled_departures_from_departure_status(): void
-    {
-        $departures = $this->fetchDepartures([
-            $this->apiDeparture('Utrecht', [
-                'departureStatus' => 'CANCELLED',
-            ]),
-        ]);
-
-        self::assertSame('Cancelled', $departures[0]['status']);
-        self::assertSame('cancelled', $departures[0]['status_code']);
-        self::assertSame('Service cancelled', $departures[0]['detail']);
-        self::assertSame('2026-10-05T12:00:00+02:00', $departures[0]['planned_at']);
-        self::assertNull($departures[0]['actual_at']);
-    }
-
     public function test_marks_departures_stale_when_departure_refresh_fails(): void
     {
         LiveDepartureBoardStore::make()->setDepartures([

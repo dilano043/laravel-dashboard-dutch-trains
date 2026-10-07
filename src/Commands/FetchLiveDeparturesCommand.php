@@ -178,9 +178,7 @@ class FetchLiveDeparturesCommand extends Command
         $delayMinutes = $actual === null
             ? 0
             : max(0, intdiv($actual->getTimestamp() - $planned->getTimestamp(), 60));
-        $isCancelled = (bool) ($departure['cancelled'] ?? false)
-            || (is_string($departure['departureStatus'] ?? null)
-                && strtoupper($departure['departureStatus']) === 'CANCELLED');
+        $isCancelled = (bool) ($departure['cancelled'] ?? false);
         $isOnTime = ! $isCancelled && $delayMinutes === 0;
 
         if ($isCancelled) {
