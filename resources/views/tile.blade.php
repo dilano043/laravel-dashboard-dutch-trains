@@ -4,20 +4,20 @@
             <h2 class="text-sm font-semibold">Station {{ $station_name }} departure times</h2>
         </header>
 
-        @if ($disruptions_are_stale || ! empty($disruptions))
+        @if($disruptions_are_stale || ! empty($disruptions))
             <section class="shrink-0 border-b border-[color-mix(in_srgb,var(--color-default)_18%,transparent)] bg-[color-mix(in_srgb,var(--color-warning)_10%,var(--color-tile))] px-3 py-1.5 sm:px-4" aria-label="{{ $disruptions_are_stale ? 'Station disruption information is out of date' : 'Active station disruptions' }}">
-                @if ($disruptions_are_stale)
+                @if($disruptions_are_stale)
                     <p class="mb-1 text-[9px] font-semibold text-warning sm:text-[10px]">{{ $disruptions_stale_message }}</p>
                 @endif
-                @foreach ($disruptions as $disruption)
+                @foreach($disruptions as $disruption)
                     <article class="py-1 first:pt-0 last:pb-0">
                         <p class="truncate text-[10px] font-semibold text-warning sm:text-xs">{{ $disruption['title'] }}</p>
-                        @if ($disruption['detail'] !== '')
+                        @if($disruption['detail'] !== '')
                             <p class="line-clamp-2 text-[9px] leading-tight text-dimmed sm:text-[10px]">{{ $disruption['detail'] }}</p>
                         @endif
                     </article>
                 @endforeach
-                @if ($additional_disruptions_count > 0)
+                @if($additional_disruptions_count > 0)
                     <p class="pt-1 text-[9px] font-semibold text-dimmed sm:text-[10px]">{{ $additional_disruptions_count }} more active disruption{{ $additional_disruptions_count === 1 ? '' : 's' }} not shown.</p>
                 @endif
             </section>
@@ -29,6 +29,12 @@
             <span>Status</span>
             <span class="text-center">Track</span>
         </div>
+
+        @if($departures_are_stale)
+            <div class="shrink-0 border-b border-[color-mix(in_srgb,var(--color-default)_18%,transparent)] bg-[color-mix(in_srgb,var(--color-warning)_10%,var(--color-tile))] px-3 py-1.5 text-[9px] font-semibold text-warning sm:text-[10px]">
+                {{ $departures_stale_message }}
+            </div>
+        @endif
 
         @if(empty($departures))
             <div class="flex min-h-0 flex-1 items-center justify-center px-4 text-sm text-dimmed">
@@ -46,9 +52,9 @@
                         </div>
 
                         <div @class([
-                            'min-w-0 text-success' => $departure['status'] === 'On time',
-                            'min-w-0 text-warning' => $departure['status'] === 'Delayed',
-                            'min-w-0 text-error' => $departure['status'] === 'Cancelled',
+                            'min-w-0 text-success' => $departure['status_code'] === 'on_time',
+                            'min-w-0 text-warning' => $departure['status_code'] === 'delayed',
+                            'min-w-0 text-error' => $departure['status_code'] === 'cancelled',
                         ])>
                             <span @class([
                                 'inline-flex max-w-full items-center gap-1 rounded-full px-1.5 py-1 text-[8px] font-medium leading-none sm:gap-1.5 sm:px-2 sm:text-[9px]',

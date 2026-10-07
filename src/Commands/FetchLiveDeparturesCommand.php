@@ -21,8 +21,10 @@ class FetchLiveDeparturesCommand extends Command
         $apiKey = config('dashboard.tiles.live_departure_board.api_key');
 
         if (blank($apiKey)) {
-            LiveDepartureBoardStore::make()->markDisruptionsStale();
-            $this->error('Set NS_API_KEY before fetching live departures.');
+            $store = LiveDepartureBoardStore::make();
+            $store->setDepartures([])->markDeparturesStale();
+            $store->markDisruptionsStale();
+            $this->error('Set dashboard.tiles.live_departure_board.api_key (for example via NS_API_KEY in config/dashboard.php) before fetching live departures.');
 
             return self::FAILURE;
         }
@@ -39,7 +41,7 @@ class FetchLiveDeparturesCommand extends Command
         }
 
         try {
-            $disruptionsResponse = $this->getNsData('/api/v3/disruptions/station/'.$station, [
+            $disruptionsResponse = $this->getNsData('/api/v3/disruptions/station/'.rawurlencode($station), [
                 'isActive' => 'true',
             ]);
         } catch (ConnectionException) {
@@ -48,34 +50,40 @@ class FetchLiveDeparturesCommand extends Command
 
         $store = LiveDepartureBoardStore::make();
         $departures = [];
+        $disruptions = [];
 
-        if ($departuresResponse !== null) {
-            if ($departuresResponse->failed()) {
-                $errors[] = 'The NS departures API returned HTTP '.$departuresResponse->status().'.';
+        if ($departuresResponse === null) {
+            $store->setDepartures([])->markDeparturesStale();
+        } elseif ($departuresResponse->failed()) {
+            $errors[] = "The NS departures API returned HTTP {$departuresResponse->status()}.";
+            $store->setDepartures([])->markDeparturesStale();
+        } else {
+            $apiDepartures = $departuresResponse->json('payload.departures');
+
+            if (! is_array($apiDepartures)) {
+                $errors[] = 'The NS departures API response did not contain a departures list.';
+                $store->setDepartures([])->markDeparturesStale();
             } else {
-                $apiDepartures = $departuresResponse->json('payload.departures');
+                $departures = collect($apiDepartures)
+                    ->filter(fn (mixed $departure): bool => is_array($departure))
+                    ->reject(fn (array $departure): bool => is_string($departure['departureStatus'] ?? null)
+                        && strtoupper($departure['departureStatus']) === 'DEPARTED')
+                    ->map(fn (array $departure): ?array => $this->mapDeparture($departure))
+                    ->filter()
+                    ->filter(fn (array $departure): bool => CarbonImmutable::parse(
+                        $departure['actual_at'] ?? $departure['planned_at'],
+                    )->isFuture())
+                    ->take(max(1, (int) config('dashboard.tiles.live_departure_board.visible_departures', 3)))
+                    ->values()
+                    ->all();
 
-                if (! is_array($apiDepartures)) {
-                    $errors[] = 'The NS departures API response did not contain a departures list.';
-                } else {
-                    $departures = collect($apiDepartures)
-                        ->filter(fn (mixed $departure): bool => is_array($departure))
-                        ->reject(fn (array $departure): bool => is_string($departure['departureStatus'] ?? null)
-                            && strtoupper($departure['departureStatus']) === 'DEPARTED')
-                        ->map(fn (array $departure): ?array => $this->mapDeparture($departure))
-                        ->filter()
-                        ->take(max(1, (int) config('dashboard.tiles.live_departure_board.visible_departures', 3)))
-                        ->values()
-                        ->all();
-
-                    $store->setDepartures($departures);
-                }
+                $store->setDepartures($departures);
             }
         }
 
         if ($disruptionsResponse === null || $disruptionsResponse->failed()) {
             if ($disruptionsResponse !== null) {
-                $errors[] = 'The NS disruptions API returned HTTP '.$disruptionsResponse->status().'.';
+                $errors[] = "The NS disruptions API returned HTTP {$disruptionsResponse->status()}.";
             }
 
             $store->markDisruptionsStale();
@@ -109,11 +117,14 @@ class FetchLiveDeparturesCommand extends Command
             $this->error($error);
         }
 
+        $departuresCount = count($departures);
+        $disruptionsCount = count($disruptions);
+
         if ($errors !== []) {
             return self::FAILURE;
         }
 
-        $this->info('Stored '.count($departures).' upcoming departures and '.count($disruptions).' active disruptions.');
+        $this->info("Stored {$departuresCount} upcoming departures and {$disruptionsCount} active disruptions.");
 
         return self::SUCCESS;
     }
@@ -129,7 +140,7 @@ class FetchLiveDeparturesCommand extends Command
             ])
             ->connectTimeout(3)
             ->timeout(10)
-            ->get('https://gateway.apiportal.ns.nl/reisinformatie-api'.$path, $query);
+            ->get("https://gateway.apiportal.ns.nl/reisinformatie-api{$path}", $query);
     }
 
     /** @param array<string, mixed> $departure
@@ -138,9 +149,11 @@ class FetchLiveDeparturesCommand extends Command
      *     destination: string,
      *     service: string,
      *     status: string,
+     *     status_code: 'on_time'|'delayed'|'cancelled',
      *     detail: string,
      *     track: string,
-     *     onTime: bool,
+     *     planned_at: string,
+     *     actual_at: ?string,
      * }|null
      */
     private function mapDeparture(array $departure): ?array
@@ -164,7 +177,7 @@ class FetchLiveDeparturesCommand extends Command
 
         $delayMinutes = $actual === null
             ? 0
-            : max(0, (int) round(($actual->getTimestamp() - $planned->getTimestamp()) / 60));
+            : max(0, intdiv($actual->getTimestamp() - $planned->getTimestamp(), 60));
         $isCancelled = (bool) ($departure['cancelled'] ?? false)
             || (is_string($departure['departureStatus'] ?? null)
                 && strtoupper($departure['departureStatus']) === 'CANCELLED');
@@ -173,22 +186,50 @@ class FetchLiveDeparturesCommand extends Command
         if ($isCancelled) {
             $status = 'Cancelled';
             $detail = 'Service cancelled';
-        } elseif ($isOnTime) {
+
+            return [
+                'time' => $planned->setTimezone(config('dashboard.tiles.live_departure_board.timezone', 'Europe/Amsterdam'))->format('H:i'),
+                'destination' => $destination,
+                'service' => (string) data_get($departure, 'product.longCategoryName', $departure['name'] ?? $departure['trainCategory'] ?? 'Train'),
+                'status' => $status,
+                'status_code' => 'cancelled',
+                'detail' => $detail,
+                'track' => (string) ($departure['actualTrack'] ?? $departure['plannedTrack'] ?? '—'),
+                'planned_at' => $planned->toIso8601String(),
+                'actual_at' => $actual?->toIso8601String(),
+            ];
+        }
+
+        if ($isOnTime) {
             $status = 'On time';
             $detail = 'On schedule';
-        } else {
-            $status = 'Delayed';
-            $detail = '+ '.$delayMinutes.' min';
+
+            return [
+                'time' => $planned->setTimezone(config('dashboard.tiles.live_departure_board.timezone', 'Europe/Amsterdam'))->format('H:i'),
+                'destination' => $destination,
+                'service' => (string) data_get($departure, 'product.longCategoryName', $departure['name'] ?? $departure['trainCategory'] ?? 'Train'),
+                'status' => $status,
+                'status_code' => 'on_time',
+                'detail' => $detail,
+                'track' => (string) ($departure['actualTrack'] ?? $departure['plannedTrack'] ?? '—'),
+                'planned_at' => $planned->toIso8601String(),
+                'actual_at' => $actual?->toIso8601String(),
+            ];
         }
+
+        $status = 'Delayed';
+        $detail = "+ {$delayMinutes} min";
 
         return [
             'time' => $planned->setTimezone(config('dashboard.tiles.live_departure_board.timezone', 'Europe/Amsterdam'))->format('H:i'),
             'destination' => $destination,
             'service' => (string) data_get($departure, 'product.longCategoryName', $departure['name'] ?? $departure['trainCategory'] ?? 'Train'),
             'status' => $status,
+            'status_code' => 'delayed',
             'detail' => $detail,
             'track' => (string) ($departure['actualTrack'] ?? $departure['plannedTrack'] ?? '—'),
-            'onTime' => $isOnTime,
+            'planned_at' => $planned->toIso8601String(),
+            'actual_at' => $actual?->toIso8601String(),
         ];
     }
 
@@ -203,7 +244,9 @@ class FetchLiveDeparturesCommand extends Command
             return null;
         }
 
-        $detail = data_get($disruption, 'timespans.0.situation')
+        $situation = data_get($disruption, 'timespans.0.situation');
+        $detail = data_get($disruption, 'timespans.0.situation.label')
+            ?? (is_string($situation) ? $situation : null)
             ?? $disruption['topic']
             ?? $disruption['summary']
             ?? $disruption['cause']

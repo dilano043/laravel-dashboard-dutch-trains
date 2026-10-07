@@ -30,7 +30,7 @@ Add the key to the host application's `.env` file:
 NS_API_KEY=your-ns-subscription-key
 ```
 
-Keep the key private and do not commit it to source control.
+The package reads `dashboard.tiles.live_departure_board.api_key`, so the host app must map `NS_API_KEY` to that config key as shown below. Keep the key private and do not commit it to source control.
 
 ## Configuration
 

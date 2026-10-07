@@ -24,14 +24,26 @@ class LiveDepartureBoardStore
      *     destination: string,
      *     service: string,
      *     status: string,
+     *     status_code: 'on_time'|'delayed'|'cancelled',
      *     detail: string,
      *     track: string,
-     *     onTime: bool,
+     *     planned_at?: string,
+     *     actual_at?: ?string,
      * }> $departures
      */
     public function setDepartures(array $departures): static
     {
-        $this->tile->putData('departures', $departures);
+        $this->updateData([
+            'departures' => $departures,
+            'departures_stale' => false,
+        ]);
+
+        return $this;
+    }
+
+    public function markDeparturesStale(): static
+    {
+        $this->tile->putData('departures_stale', true);
 
         return $this;
     }
@@ -41,8 +53,10 @@ class LiveDepartureBoardStore
      */
     public function setDisruptions(array $disruptions): static
     {
-        $this->tile->putData('disruptions', $disruptions);
-        $this->tile->putData('disruptions_stale', false);
+        $this->updateData([
+            'disruptions' => $disruptions,
+            'disruptions_stale' => false,
+        ]);
 
         return $this;
     }
@@ -60,14 +74,21 @@ class LiveDepartureBoardStore
      *     destination: string,
      *     service: string,
      *     status: string,
+     *     status_code: 'on_time'|'delayed'|'cancelled',
      *     detail: string,
      *     track: string,
-     *     onTime: bool,
+     *     planned_at?: string,
+     *     actual_at?: ?string,
      * }>
      */
     public function departures(): array
     {
         return $this->tile->getData('departures') ?? [];
+    }
+
+    public function departuresAreStale(): bool
+    {
+        return (bool) $this->tile->getData('departures_stale');
     }
 
     /** @return list<array{title: string, detail: string}> */
@@ -78,8 +99,14 @@ class LiveDepartureBoardStore
 
     public function disruptionsAreStale(): bool
     {
-        $stale = $this->tile->getData('disruptions_stale');
+        return (bool) $this->tile->getData('disruptions_stale');
+    }
 
-        return $stale === null ? $this->disruptions() !== [] : (bool) $stale;
+    /** @param array<string, mixed> $data */
+    private function updateData(array $data): void
+    {
+        $this->tile->update([
+            'data' => array_merge($this->tile->data ?? [], $data),
+        ]);
     }
 }
