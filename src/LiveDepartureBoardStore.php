@@ -49,7 +49,10 @@ class LiveDepartureBoardStore
     }
 
     /**
-     * @param  list<array{title: string, detail: string}>  $disruptions
+     * @param list<array{
+     *     title: string,
+     *     detail: string,
+     * }> $disruptions
      */
     public function setDisruptions(array $disruptions): static
     {
@@ -91,7 +94,12 @@ class LiveDepartureBoardStore
         return (bool) $this->tile->getData('departures_stale');
     }
 
-    /** @return list<array{title: string, detail: string}> */
+    /**
+     * @return list<array{
+     *     title: string,
+     *     detail: string,
+     * }>
+     */
     public function disruptions(): array
     {
         return $this->tile->getData('disruptions') ?? [];

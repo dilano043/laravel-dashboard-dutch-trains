@@ -232,7 +232,10 @@ class FetchLiveDeparturesCommand extends Command
     }
 
     /** @param array<string, mixed> $disruption
-     * @return array{title: string, detail: string}|null
+     * @return array{
+     *     title: string,
+     *     detail: string,
+     * }|null
      */
     private function mapDisruption(array $disruption): ?array
     {
