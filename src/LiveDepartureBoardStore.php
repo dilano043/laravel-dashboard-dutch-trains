@@ -4,13 +4,13 @@ namespace Creacoon\LiveDepartureBoardTile;
 
 use Spatie\Dashboard\Models\Tile;
 
-class LiveDepartureBoardStore
+final class LiveDepartureBoardStore
 {
     private Tile $tile;
 
     public static function make(): static
     {
-        return new static;
+        return new self;
     }
 
     public function __construct()

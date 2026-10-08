@@ -41,7 +41,9 @@ class FetchLiveDeparturesCommand extends Command
         }
 
         try {
-            $disruptionsResponse = $this->getNsData('/api/v3/disruptions/station/'.rawurlencode($station), [
+            $encodedStation = rawurlencode($station);
+            $disruptionsPath = "/api/v3/disruptions/station/{$encodedStation}";
+            $disruptionsResponse = $this->getNsData($disruptionsPath, [
                 'isActive' => 'true',
             ]);
         } catch (ConnectionException) {
@@ -49,69 +51,8 @@ class FetchLiveDeparturesCommand extends Command
         }
 
         $store = LiveDepartureBoardStore::make();
-        $departures = [];
-        $disruptions = [];
-
-        if ($departuresResponse === null) {
-            $store->setDepartures([])->markDeparturesStale();
-        } elseif ($departuresResponse->failed()) {
-            $errors[] = "The NS departures API returned HTTP {$departuresResponse->status()}.";
-            $store->setDepartures([])->markDeparturesStale();
-        } else {
-            $apiDepartures = $departuresResponse->json('payload.departures');
-
-            if (! is_array($apiDepartures)) {
-                $errors[] = 'The NS departures API response did not contain a departures list.';
-                $store->setDepartures([])->markDeparturesStale();
-            } else {
-                $departures = collect($apiDepartures)
-                    ->filter(fn (mixed $departure): bool => is_array($departure))
-                    ->reject(fn (array $departure): bool => is_string($departure['departureStatus'] ?? null)
-                        && strtoupper($departure['departureStatus']) === 'DEPARTED')
-                    ->map(fn (array $departure): ?array => $this->mapDeparture($departure))
-                    ->filter()
-                    ->filter(fn (array $departure): bool => CarbonImmutable::parse(
-                        $departure['actual_at'] ?? $departure['planned_at'],
-                    )->isFuture())
-                    ->take(max(1, (int) config('dashboard.tiles.live_departure_board.visible_departures', 3)))
-                    ->values()
-                    ->all();
-
-                $store->setDepartures($departures);
-            }
-        }
-
-        if ($disruptionsResponse === null || $disruptionsResponse->failed()) {
-            if ($disruptionsResponse !== null) {
-                $errors[] = "The NS disruptions API returned HTTP {$disruptionsResponse->status()}.";
-            }
-
-            $store->markDisruptionsStale();
-        } else {
-            $apiDisruptions = $disruptionsResponse->json('payload');
-
-            if (! is_array($apiDisruptions)) {
-                $apiDisruptions = $disruptionsResponse->json();
-            }
-
-            if (is_array($apiDisruptions) && is_array($apiDisruptions['disruptions'] ?? null)) {
-                $apiDisruptions = $apiDisruptions['disruptions'];
-            }
-
-            if (! is_array($apiDisruptions)) {
-                $errors[] = 'The NS disruptions API response did not contain a disruptions list.';
-                $store->markDisruptionsStale();
-            } else {
-                $disruptions = collect($apiDisruptions)
-                    ->filter(fn (mixed $disruption): bool => is_array($disruption))
-                    ->map(fn (array $disruption): ?array => $this->mapDisruption($disruption))
-                    ->filter()
-                    ->values()
-                    ->all();
-
-                $store->setDisruptions($disruptions);
-            }
-        }
+        $departures = $this->storeDepartures($departuresResponse, $store, $errors);
+        $disruptions = $this->storeDisruptions($disruptionsResponse, $store, $errors);
 
         foreach ($errors as $error) {
             $this->error($error);
@@ -129,6 +70,136 @@ class FetchLiveDeparturesCommand extends Command
         return self::SUCCESS;
     }
 
+    /**
+     * @param  list<string>  $errors
+     * @return list<array{
+     *     time: string,
+     *     destination: string,
+     *     service: string,
+     *     status: string,
+     *     status_code: 'on_time'|'delayed'|'cancelled',
+     *     detail: string,
+     *     track: string,
+     *     planned_at: string,
+     *     actual_at: ?string,
+     * }>
+     */
+    private function storeDepartures(?Response $response, LiveDepartureBoardStore $store, array &$errors): array
+    {
+        if ($response === null) {
+            $store->setDepartures([])->markDeparturesStale();
+
+            return [];
+        }
+
+        if ($response->failed()) {
+            $errors[] = "The NS departures API returned HTTP {$response->status()}.";
+            $store->setDepartures([])->markDeparturesStale();
+
+            return [];
+        }
+
+        $apiDepartures = $response->json('payload.departures');
+
+        if (! is_array($apiDepartures)) {
+            $errors[] = 'The NS departures API response did not contain a departures list.';
+            $store->setDepartures([])->markDeparturesStale();
+
+            return [];
+        }
+
+        $departures = [];
+        $visibleLimit = max(1, (int) config('dashboard.tiles.live_departure_board.visible_departures', 3));
+
+        foreach ($apiDepartures as $apiDeparture) {
+            if (! is_array($apiDeparture)) {
+                continue;
+            }
+
+            if (is_string($apiDeparture['departureStatus'] ?? null)
+                && strtoupper($apiDeparture['departureStatus']) === 'DEPARTED') {
+                continue;
+            }
+
+            $departure = $this->mapDeparture($apiDeparture);
+
+            if ($departure === null) {
+                continue;
+            }
+
+            if (! CarbonImmutable::parse($departure['actual_at'] ?? $departure['planned_at'])->isFuture()) {
+                continue;
+            }
+
+            $departures[] = $departure;
+
+            if (count($departures) >= $visibleLimit) {
+                break;
+            }
+        }
+
+        $store->setDepartures($departures);
+
+        return $departures;
+    }
+
+    /**
+     * @param  list<string>  $errors
+     * @return list<array{title: string, detail: string}>
+     */
+    private function storeDisruptions(?Response $response, LiveDepartureBoardStore $store, array &$errors): array
+    {
+        if ($response === null) {
+            $store->markDisruptionsStale();
+
+            return [];
+        }
+
+        if ($response->failed()) {
+            $errors[] = "The NS disruptions API returned HTTP {$response->status()}.";
+            $store->markDisruptionsStale();
+
+            return [];
+        }
+
+        $apiDisruptions = $response->json('payload');
+
+        if (! is_array($apiDisruptions)) {
+            $apiDisruptions = $response->json();
+        }
+
+        if (is_array($apiDisruptions) && is_array($apiDisruptions['disruptions'] ?? null)) {
+            $apiDisruptions = $apiDisruptions['disruptions'];
+        }
+
+        if (! is_array($apiDisruptions)) {
+            $errors[] = 'The NS disruptions API response did not contain a disruptions list.';
+            $store->markDisruptionsStale();
+
+            return [];
+        }
+
+        $disruptions = [];
+
+        foreach ($apiDisruptions as $apiDisruption) {
+            if (! is_array($apiDisruption)) {
+                continue;
+            }
+
+            $disruption = $this->mapDisruption($apiDisruption);
+
+            if ($disruption === null) {
+                continue;
+            }
+
+            $disruptions[] = $disruption;
+        }
+
+        $store->setDisruptions($disruptions);
+
+        return $disruptions;
+    }
+
     /** @param array<string, string> $query
      */
     private function getNsData(string $path, array $query): Response
@@ -143,7 +214,7 @@ class FetchLiveDeparturesCommand extends Command
             ->get("https://gateway.apiportal.ns.nl/reisinformatie-api{$path}", $query);
     }
 
-    /** @param array<string, mixed> $departure
+    /** @param array<array-key, mixed> $departure
      * @return array{
      *     time: string,
      *     destination: string,
@@ -231,7 +302,7 @@ class FetchLiveDeparturesCommand extends Command
         ];
     }
 
-    /** @param array<string, mixed> $disruption
+    /** @param array<array-key, mixed> $disruption
      * @return array{
      *     title: string,
      *     detail: string,

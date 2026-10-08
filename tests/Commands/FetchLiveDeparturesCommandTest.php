@@ -6,6 +6,7 @@ use Creacoon\LiveDepartureBoardTile\LiveDepartureBoardStore;
 use Creacoon\LiveDepartureBoardTile\LiveDepartureBoardTileComponent;
 use Creacoon\LiveDepartureBoardTile\Tests\TestCase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Http;
 
 class FetchLiveDeparturesCommandTest extends TestCase
@@ -111,8 +112,8 @@ class FetchLiveDeparturesCommandTest extends TestCase
         self::assertSame('Cancelled', $departures[0]['status']);
         self::assertSame('cancelled', $departures[0]['status_code']);
         self::assertSame('Service cancelled', $departures[0]['detail']);
-        self::assertSame('2026-10-05T12:00:00+02:00', $departures[0]['planned_at']);
-        self::assertNull($departures[0]['actual_at']);
+        self::assertSame('2026-10-05T12:00:00+02:00', $departures[0]['planned_at'] ?? null);
+        self::assertNull($departures[0]['actual_at'] ?? null);
     }
 
     public function test_marks_departures_stale_when_departure_refresh_fails(): void
@@ -137,7 +138,7 @@ class FetchLiveDeparturesCommandTest extends TestCase
             ]),
         ]);
 
-        $this->artisan('dashboard:fetch-live-departure-board')->assertFailed();
+        self::assertSame(1, Artisan::call('dashboard:fetch-live-departure-board'));
 
         $store = LiveDepartureBoardStore::make();
         self::assertSame([], $store->departures());
@@ -245,7 +246,7 @@ class FetchLiveDeparturesCommandTest extends TestCase
             'gateway.apiportal.ns.nl/reisinformatie-api/api/v3/disruptions/station/*' => Http::response([], 503),
         ]);
 
-        $this->artisan('dashboard:fetch-live-departure-board')->assertFailed();
+        self::assertSame(1, Artisan::call('dashboard:fetch-live-departure-board'));
 
         $store = LiveDepartureBoardStore::make();
         self::assertSame($lastKnownDisruptions, $store->disruptions());
@@ -349,7 +350,9 @@ class FetchLiveDeparturesCommandTest extends TestCase
         self::assertSame('Asd', $data['station_name']);
     }
 
-    /** @param list<array<string, mixed>> $apiDepartures
+    /**
+     * @param  list<array<string, mixed>>  $apiDepartures
+     * @param  list<array<string, mixed>>  $apiDisruptions
      * @return list<array{
      *     time: string,
      *     destination: string,
@@ -358,8 +361,8 @@ class FetchLiveDeparturesCommandTest extends TestCase
      *     status_code: 'on_time'|'delayed'|'cancelled',
      *     detail: string,
      *     track: string,
-     *     planned_at: string,
-     *     actual_at: ?string,
+     *     planned_at?: string,
+     *     actual_at?: ?string,
      * }>
      */
     private function fetchDepartures(array $apiDepartures, array $apiDisruptions = []): array
@@ -382,7 +385,7 @@ class FetchLiveDeparturesCommandTest extends TestCase
             ]),
         ]);
 
-        $this->artisan('dashboard:fetch-live-departure-board')->assertSuccessful();
+        self::assertSame(0, Artisan::call('dashboard:fetch-live-departure-board'));
 
         return LiveDepartureBoardStore::make()->departures();
     }

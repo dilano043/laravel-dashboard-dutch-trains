@@ -34,7 +34,7 @@ class LiveDepartureBoardTileComponent extends Component
 
         $departuresAreStale = $store->departuresAreStale();
 
-        return view('dashboard-live-departure-board-tile::tile', [
+        return view()->make('dashboard-live-departure-board-tile::tile', [
             'departures' => $departures,
             'departures_are_stale' => $departuresAreStale,
             'departures_stale_message' => 'Departure information unavailable; the latest refresh failed.',
